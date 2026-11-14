@@ -20,6 +20,7 @@ import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -36,12 +37,21 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
     private static final String[] LOOT_POOL = {"Trident", "Sword", "Mace", "Armor", "Axe", "Bow", "Crossbow"};
     private NamespacedKey strengthItemKey;
     private NamespacedKey upgradedArmorKey;
+    private NamespacedKey rerollKey;
 
     @Override
     public void onEnable() {
         strengthItemKey = new NamespacedKey(this, "strength_crystal");
         upgradedArmorKey = new NamespacedKey(this, "upgraded_armor");
         getServer().getScheduler().runTaskTimer(this, this::scanArmor, 10L, 5L);
+        rerollKey = new NamespacedKey(this, "reroll");
+        ShapedRecipe rerollRecipe = new ShapedRecipe(rerollKey, createReroll());
+        rerollRecipe.shape("ISI", "SDS", "ISI");
+        rerollRecipe.setIngredient('I', Material.IRON_BLOCK);
+        rerollRecipe.setIngredient('S', Material.GOLD_BLOCK);
+        rerollRecipe.setIngredient('D', Material.DIAMOND_BLOCK);
+        Bukkit.removeRecipe(rerollKey);
+        Bukkit.addRecipe(rerollRecipe);
         getServer().getPluginManager().registerEvents(this, this);
         getLogger().info("StrengthSMP enabled. Player strength ranges from 1 to 5.");
     }
@@ -49,6 +59,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
     @Override
     public void onDisable() {
         for (Player p : Bukkit.getOnlinePlayers()) revertAllArmor(p);
+        Bukkit.removeRecipe(rerollKey);
         saveConfig();
     }
 
@@ -73,10 +84,10 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
 
     private double multiplier(int level) {
         return switch (level) {
-            case 2 -> 1.4;
-            case 3 -> 2.0;
-            case 4 -> 3.0;
-            case 5 -> 4.0;
+            case 2 -> 1.2;
+            case 3 -> 1.5;
+            case 4 -> 2.0;
+            case 5 -> 2.5;
             default -> 1.0;
         };
     }
@@ -134,6 +145,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        player.discoverRecipe(rerollKey);
         boolean first = !getConfig().contains(assignedKey(player.getUniqueId()));
         String assigned = getAssignedItem(player);
         if (first) {
@@ -236,6 +248,45 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
         revertAllArmor(event.getPlayer());
     }
 
+    // ---- Reroll item: craft with iron blocks (corners), gold blocks (sides), diamond block (middle) ----
+
+    private ItemStack createReroll() {
+        ItemStack item = new ItemStack(Material.ECHO_SHARD);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName(ChatColor.AQUA + "" + ChatColor.BOLD + "Reroll");
+        List<String> lore = new ArrayList<>();
+        lore.add(ChatColor.GRAY + "Right-click to reroll your assigned item.");
+        meta.setLore(lore);
+        meta.getPersistentDataContainer().set(rerollKey, PersistentDataType.BYTE, (byte) 1);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private boolean isReroll(ItemStack item) {
+        if (item == null || item.getType() != Material.ECHO_SHARD || !item.hasItemMeta()) return false;
+        Byte marker = item.getItemMeta().getPersistentDataContainer().get(rerollKey, PersistentDataType.BYTE);
+        return marker != null && marker == (byte) 1;
+    }
+
+    @EventHandler
+    public void onUseReroll(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+        if (event.getHand() != org.bukkit.inventory.EquipmentSlot.HAND) return;
+        ItemStack item = event.getItem();
+        if (!isReroll(item)) return;
+        event.setCancelled(true);
+        Player player = event.getPlayer();
+        String current = getAssignedItem(player);
+        String next;
+        do {
+            next = LOOT_POOL[ThreadLocalRandom.current().nextInt(LOOT_POOL.length)];
+        } while (next.equals(current));
+        getConfig().set(assignedKey(player.getUniqueId()), next);
+        saveConfig();
+        item.setAmount(item.getAmount() - 1);
+        player.sendMessage(ChatColor.AQUA + "Rerolled! " + ChatColor.GRAY + "You are now assigned: " + ChatColor.GOLD + next);
+    }
+
     private ItemStack createStrengthItem(int amount) {
         ItemStack item = new ItemStack(Material.NETHER_STAR, Math.max(1, Math.min(64, amount)));
         ItemMeta meta = item.getItemMeta();
@@ -333,7 +384,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
 
         if (command.getName().equalsIgnoreCase("strength")) {
             if (args.length == 0) {
-                if (!(sender instanceof Player player)) { sender.sendMessage("Usage: /strength give <player> [amount] or /strength set <player> <1-5>"); return true; }
+                if (!(sender instanceof Player player)) { sender.sendMessage("Usage: /strength give <player> [amount] or /strength set <player> <1-5> | /strength reroll [player]"); return true; }
                 int level = getStrength(player);
                 player.sendMessage(ChatColor.LIGHT_PURPLE + "Your Strength: " + level + "/5 " + ChatColor.GRAY + "(Damage: " + multiplier(level) + "x)");
                 player.sendMessage(ChatColor.LIGHT_PURPLE + "Assigned item: " + ChatColor.GOLD + getAssignedItem(player));
@@ -351,6 +402,16 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
                 if (amount < 1 || amount > 2304) { sender.sendMessage(ChatColor.RED + "Amount must be between 1 and 2304."); return true; }
                 giveStrengthItems(target, amount);
                 sender.sendMessage(ChatColor.GREEN + "Gave " + amount + " Strength Crystal(s) to " + target.getName() + ".");
+                return true;
+            }
+            if (args[0].equalsIgnoreCase("reroll")) {
+                Player target = null;
+                if (args.length >= 2) target = Bukkit.getPlayerExact(args[1]);
+                else if (sender instanceof Player p) target = p;
+                if (target == null) { sender.sendMessage(ChatColor.RED + "Usage: /strength reroll [player] (player must be online)"); return true; }
+                var leftovers = target.getInventory().addItem(createReroll());
+                leftovers.values().forEach(l -> target.getWorld().dropItemNaturally(target.getLocation(), l));
+                sender.sendMessage(ChatColor.GREEN + "Gave a Reroll to " + target.getName() + ".");
                 return true;
             }
             if (args[0].equalsIgnoreCase("set") && args.length >= 3) {
