@@ -409,9 +409,10 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
                 if (args.length >= 2) target = Bukkit.getPlayerExact(args[1]);
                 else if (sender instanceof Player p) target = p;
                 if (target == null) { sender.sendMessage(ChatColor.RED + "Usage: /strength reroll [player] (player must be online)"); return true; }
-                var leftovers = target.getInventory().addItem(createReroll());
-                leftovers.values().forEach(l -> target.getWorld().dropItemNaturally(target.getLocation(), l));
-                sender.sendMessage(ChatColor.GREEN + "Gave a Reroll to " + target.getName() + ".");
+                final Player receiver = target;
+                var leftovers = receiver.getInventory().addItem(createReroll());
+                leftovers.values().forEach(l -> receiver.getWorld().dropItemNaturally(receiver.getLocation(), l));
+                sender.sendMessage(ChatColor.GREEN + "Gave a Reroll to " + receiver.getName() + ".");
                 return true;
             }
             if (args[0].equalsIgnoreCase("set") && args.length >= 3) {
