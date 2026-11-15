@@ -1,12 +1,16 @@
 package com.dozer.strengthsmp;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.Particle;
+import org.bukkit.Sound;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
@@ -24,8 +28,14 @@ import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
+import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.UUID;
@@ -38,6 +48,12 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
     private NamespacedKey strengthItemKey;
     private NamespacedKey upgradedArmorKey;
     private NamespacedKey rerollKey;
+    private static final long OVERDRIVE_COOLDOWN_MS = 60_000L; // 60s cooldown
+    private static final int OVERDRIVE_TICKS = 20 * 15;        // 15s of effects
+    private static final double SHOCKWAVE_RADIUS = 7.0;
+    private static final double SHOCKWAVE_DAMAGE = 6.0;        // 3 hearts, ignores the Strength multiplier
+    private final Map<UUID, Long> overdriveCooldowns = new HashMap<>();
+    private boolean abilityDamageInProgress = false;
 
     @Override
     public void onEnable() {
@@ -100,6 +116,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onPlayerDamage(EntityDamageByEntityEvent event) {
+        if (abilityDamageInProgress) return;
         if (!(event.getEntity() instanceof Player)) return;
         Player attacker = getAttackingPlayer(event.getDamager());
         if (attacker == null) return;
@@ -245,6 +262,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
     // Logging out counts as taking the armor off; it is re-upgraded on the next scan after joining.
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
+        overdriveCooldowns.remove(event.getPlayer().getUniqueId());
         revertAllArmor(event.getPlayer());
     }
 
@@ -285,6 +303,105 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
         saveConfig();
         item.setAmount(item.getAmount() - 1);
         player.sendMessage(ChatColor.AQUA + "Rerolled! " + ChatColor.GRAY + "You are now assigned: " + ChatColor.GOLD + next);
+    }
+
+    // ---- /activate: Strength 5 only. "Overdrive" with a shockwave, aura and a bonus based on your assigned item ----
+
+    private void activateOverdrive(Player player) {
+        if (getStrength(player) < MAX_LEVEL) {
+            player.sendMessage(ChatColor.RED + "You need Strength 5 to use /activate. " + ChatColor.GRAY + "(You have " + getStrength(player) + "/5)");
+            return;
+        }
+        long now = System.currentTimeMillis();
+        long readyAt = overdriveCooldowns.getOrDefault(player.getUniqueId(), 0L);
+        if (now < readyAt) {
+            long secs = (readyAt - now + 999) / 1000;
+            player.sendMessage(ChatColor.RED + "Overdrive is on cooldown for " + secs + "s.");
+            return;
+        }
+        overdriveCooldowns.put(player.getUniqueId(), now + OVERDRIVE_COOLDOWN_MS);
+
+        final Player user = player;
+        final Location origin = user.getLocation();
+
+        // Lightning flash + explosion + thunder (all visual/sound only).
+        user.getWorld().strikeLightningEffect(origin);
+        user.getWorld().spawnParticle(Particle.EXPLOSION_EMITTER, origin, 1);
+        user.getWorld().playSound(origin, Sound.ENTITY_GENERIC_EXPLODE, 1.0f, 0.7f);
+        user.getWorld().playSound(origin, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 1.0f, 1.0f);
+
+        // Shockwave: damages and launches everything nearby except you.
+        abilityDamageInProgress = true;
+        try {
+            for (Entity nearby : user.getNearbyEntities(SHOCKWAVE_RADIUS, SHOCKWAVE_RADIUS, SHOCKWAVE_RADIUS)) {
+                if (!(nearby instanceof LivingEntity victim)) continue;
+                victim.damage(SHOCKWAVE_DAMAGE, user);
+                Vector push = victim.getLocation().toVector().subtract(origin.toVector());
+                if (push.lengthSquared() < 0.0001) push = new Vector(0, 0, 1);
+                victim.setVelocity(push.normalize().multiply(1.6).setY(0.6));
+            }
+        } finally {
+            abilityDamageInProgress = false;
+        }
+
+        // Base buffs for everyone.
+        user.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, OVERDRIVE_TICKS, 1));
+        user.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, OVERDRIVE_TICKS, 0));
+
+        // Bonus depends on the item you were assigned.
+        String assigned = getAssignedItem(user);
+        String bonus;
+        switch (assigned) {
+            case "Trident" -> {
+                user.addPotionEffect(new PotionEffect(PotionEffectType.DOLPHINS_GRACE, OVERDRIVE_TICKS, 1));
+                user.addPotionEffect(new PotionEffect(PotionEffectType.CONDUIT_POWER, OVERDRIVE_TICKS, 0));
+                bonus = "Tidal Rush (swim fast, see and breathe underwater)";
+            }
+            case "Sword" -> {
+                user.addPotionEffect(new PotionEffect(PotionEffectType.ABSORPTION, OVERDRIVE_TICKS, 2));
+                bonus = "Blade Guard (extra golden hearts)";
+            }
+            case "Mace" -> {
+                user.addPotionEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, OVERDRIVE_TICKS, 2));
+                bonus = "Skyfall (jump much higher)";
+            }
+            case "Armor" -> {
+                user.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, OVERDRIVE_TICKS, 1));
+                bonus = "Iron Will (extra damage resistance)";
+            }
+            case "Axe" -> {
+                user.addPotionEffect(new PotionEffect(PotionEffectType.HASTE, OVERDRIVE_TICKS, 1));
+                bonus = "Berserker (mine and swing faster)";
+            }
+            case "Bow" -> {
+                user.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, OVERDRIVE_TICKS, 2));
+                bonus = "Windrunner (even faster)";
+            }
+            default -> {
+                user.addPotionEffect(new PotionEffect(PotionEffectType.REGENERATION, OVERDRIVE_TICKS, 1));
+                bonus = "Second Wind (fast healing)";
+            }
+        }
+
+        Bukkit.broadcastMessage(ChatColor.GOLD + "" + ChatColor.BOLD + user.getName() + ChatColor.RED + " activated OVERDRIVE!");
+        user.sendMessage(ChatColor.LIGHT_PURPLE + "Overdrive active for 15 seconds. " + ChatColor.GOLD + bonus);
+
+        // Fiery aura around you while it lasts.
+        new BukkitRunnable() {
+            int ticks = 0;
+            @Override
+            public void run() {
+                if (!user.isOnline() || user.isDead() || ticks >= OVERDRIVE_TICKS) {
+                    if (user.isOnline()) user.sendMessage(ChatColor.GRAY + "Overdrive ended.");
+                    cancel();
+                    return;
+                }
+                Location loc = user.getLocation().add(0, 1, 0);
+                user.getWorld().spawnParticle(Particle.FLAME, loc, 10, 0.4, 0.7, 0.4, 0.02);
+                user.getWorld().spawnParticle(Particle.SOUL_FIRE_FLAME, loc, 4, 0.5, 0.8, 0.5, 0.01);
+                ticks += 4;
+            }
+        }.runTaskTimer(this, 0L, 4L);
     }
 
     private ItemStack createStrengthItem(int amount) {
@@ -427,6 +544,15 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
                 return true;
             }
             sender.sendMessage(ChatColor.YELLOW + "Usage: /strength | /strength give <player> [amount] | /strength set <player> <1-5>");
+            return true;
+        }
+
+        if (command.getName().equalsIgnoreCase("activate")) {
+            if (!(sender instanceof Player player)) {
+                sender.sendMessage("Only players can use /activate.");
+                return true;
+            }
+            activateOverdrive(player);
             return true;
         }
         return false;
