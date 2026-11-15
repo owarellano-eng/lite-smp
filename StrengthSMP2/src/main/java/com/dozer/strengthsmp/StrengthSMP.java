@@ -169,7 +169,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
             player.sendMessage(ChatColor.LIGHT_PURPLE + "You have been assigned: " + ChatColor.GOLD + assigned + ChatColor.LIGHT_PURPLE + "!");
         }
     }
-
+    
     // ---- Armor assignment: diamond armor becomes netherite while worn, diamond again when removed ----
 
     private Material armorPiece(Material m, boolean netherite) {
@@ -310,7 +310,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
         item.setAmount(item.getAmount() - 1);
         player.sendMessage(ChatColor.AQUA + "Rerolled! " + ChatColor.GRAY + "You are now assigned: " + ChatColor.GOLD + next);
     }
-
+    
     // ---- /activate: Strength 5 only. "Overdrive" with a shockwave, aura and a bonus based on your assigned item ----
 
     private void activateOverdrive(Player player) {
@@ -409,7 +409,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
             }
         }.runTaskTimer(this, 0L, 4L);
     }
-
+    
     private ItemStack createStrengthItem(int amount) {
         ItemStack item = new ItemStack(Material.NETHER_STAR, Math.max(1, Math.min(64, amount)));
         ItemMeta meta = item.getItemMeta();
