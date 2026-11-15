@@ -1,5 +1,5 @@
 name: StrengthSMP
-version: 1.2.0
+version: 1.4.0
 main: com.dozer.strengthsmp.StrengthSMP
 api-version: '26.1'
 author: Dozer
@@ -11,6 +11,9 @@ commands:
   withdraw:
     description: Withdraw Strength into droppable Strength Crystals.
     usage: /withdraw [amount]
+  activate:
+    description: Strength 5 only. Triggers Overdrive.
+    usage: /activate
   strengthitem:
     description: Give yourself or another player Strength Crystals.
     usage: /strengthitem [player] [amount]
