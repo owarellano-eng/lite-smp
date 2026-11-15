@@ -54,6 +54,8 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
     private static final double SHOCKWAVE_DAMAGE = 6.0;        // 3 hearts, ignores the Strength multiplier
     private final Map<UUID, Long> overdriveCooldowns = new HashMap<>();
     private boolean abilityDamageInProgress = false;
+    private static final String PACK_URL = "https://raw.githubusercontent.com/owarellano-eng/lite-smp/main/strengthpack.zip";
+    private static final String PACK_SHA1 = "a159ac386c1571317b0899974369af21b9d73ccb";
 
     @Override
     public void onEnable() {
@@ -134,9 +136,9 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
         setStrength(victim, victimBefore - 1);
 
         if (killerBefore >= MAX_LEVEL) {
-            // Killer is already at max Strength, so the Strength drops on the ground as a crystal.
+            // Killer is already at max Strength, so the Strength drops on the ground as an item.
             victim.getWorld().dropItemNaturally(victim.getLocation(), createStrengthItem(1));
-            killer.sendMessage(ChatColor.GOLD + "You are at max Strength, so a Strength Crystal dropped on the ground!");
+            killer.sendMessage(ChatColor.GOLD + "You are at max Strength, so a Strength item dropped on the ground!");
         } else {
             setStrength(killer, killerBefore + 1);
             killer.sendMessage(ChatColor.GREEN + "You gained 1 Strength! " + ChatColor.GRAY + "(" + getStrength(killer) + "/5)");
@@ -169,6 +171,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         player.discoverRecipe(rerollKey);
+        player.setResourcePack(PACK_URL, hexToBytes(PACK_SHA1));
         boolean first = !getConfig().contains(assignedKey(player.getUniqueId()));
         String assigned = getAssignedItem(player);
         if (first) {
@@ -316,7 +319,8 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
         item.setAmount(item.getAmount() - 1);
         player.sendMessage(ChatColor.AQUA + "Rerolled! " + ChatColor.GRAY + "You are now assigned: " + ChatColor.GOLD + next);
     }
-    
+
+
     // ---- /activate: Strength 5 only. "Overdrive" with a shockwave, aura and a bonus based on your assigned item ----
 
     private void activateOverdrive(Player player) {
@@ -416,21 +420,32 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
         }.runTaskTimer(this, 0L, 4L);
     }
     
+    private static byte[] hexToBytes(String hex) {
+        byte[] out = new byte[hex.length() / 2];
+        for (int i = 0; i < out.length; i++) {
+            out[i] = (byte) Integer.parseInt(hex.substring(i * 2, i * 2 + 2), 16);
+        }
+        return out;
+    }
+
+    // The Strength item is its own custom item (paper base) that uses the pack's strengthsmps1:strength_item model.
     private ItemStack createStrengthItem(int amount) {
-        ItemStack item = new ItemStack(Material.NETHER_STAR, Math.max(1, Math.min(64, amount)));
+        ItemStack item = new ItemStack(Material.PAPER, Math.max(1, Math.min(64, amount)));
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName(ChatColor.LIGHT_PURPLE + "Strength Crystal");
+        meta.setDisplayName(ChatColor.DARK_RED + "" + ChatColor.BOLD + "Strength");
         List<String> lore = new ArrayList<>();
         lore.add(ChatColor.GRAY + "Right-click to gain 1 Strength");
         lore.add(ChatColor.DARK_GRAY + "Droppable and tradeable");
         meta.setLore(lore);
+        meta.setItemModel(new NamespacedKey("strengthsmps1", "strength_item"));
         meta.getPersistentDataContainer().set(strengthItemKey, PersistentDataType.BYTE, (byte) 1);
         item.setItemMeta(meta);
         return item;
     }
 
+    // Matches by marker only, so old Strength Crystals (nether stars) still work.
     private boolean isStrengthItem(ItemStack item) {
-        if (item == null || item.getType() != Material.NETHER_STAR || !item.hasItemMeta()) return false;
+        if (item == null || item.getType().isAir() || !item.hasItemMeta()) return false;
         Byte marker = item.getItemMeta().getPersistentDataContainer().get(strengthItemKey, PersistentDataType.BYTE);
         return marker != null && marker == (byte) 1;
     }
@@ -449,7 +464,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
         }
         item.setAmount(item.getAmount() - 1);
         setStrength(player, current + 1);
-        player.sendMessage(ChatColor.LIGHT_PURPLE + "Strength Crystal used! " + ChatColor.GRAY + "Your Strength is now " + getStrength(player) + "/5.");
+        player.sendMessage(ChatColor.LIGHT_PURPLE + "Strength item used! " + ChatColor.GRAY + "Your Strength is now " + getStrength(player) + "/5.");
     }
 
     private void giveStrengthItems(Player target, int amount) {
@@ -486,7 +501,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
             }
             setStrength(player, current - amount);
             giveStrengthItems(player, amount);
-            player.sendMessage(ChatColor.LIGHT_PURPLE + "Withdrew " + amount + " Strength Crystal(s). " + ChatColor.GRAY + "Strength: " + getStrength(player) + "/5.");
+            player.sendMessage(ChatColor.LIGHT_PURPLE + "Withdrew " + amount + " Strength item(s). " + ChatColor.GRAY + "Strength: " + getStrength(player) + "/5.");
             return true;
         }
 
@@ -507,7 +522,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
             }
             if (amount < 1 || amount > 2304) { sender.sendMessage(ChatColor.RED + "Amount must be between 1 and 2304."); return true; }
             giveStrengthItems(target, amount);
-            sender.sendMessage(ChatColor.GREEN + "Gave " + amount + " Strength Crystal(s) to " + target.getName() + ".");
+            sender.sendMessage(ChatColor.GREEN + "Gave " + amount + " Strength item(s) to " + target.getName() + ".");
             return true;
         }
 
@@ -530,7 +545,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
                 }
                 if (amount < 1 || amount > 2304) { sender.sendMessage(ChatColor.RED + "Amount must be between 1 and 2304."); return true; }
                 giveStrengthItems(target, amount);
-                sender.sendMessage(ChatColor.GREEN + "Gave " + amount + " Strength Crystal(s) to " + target.getName() + ".");
+                sender.sendMessage(ChatColor.GREEN + "Gave " + amount + " Strength item(s) to " + target.getName() + ".");
                 return true;
             }
             if (args[0].equalsIgnoreCase("reroll")) {
