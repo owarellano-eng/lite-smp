@@ -132,9 +132,15 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
         int victimBefore = getStrength(victim);
         int killerBefore = getStrength(killer);
         setStrength(victim, victimBefore - 1);
-        setStrength(killer, killerBefore + 1);
 
-        killer.sendMessage(ChatColor.GREEN + "You gained 1 Strength! " + ChatColor.GRAY + "(" + getStrength(killer) + "/5)");
+        if (killerBefore >= MAX_LEVEL) {
+            // Killer is already at max Strength, so the Strength drops on the ground as a crystal.
+            victim.getWorld().dropItemNaturally(victim.getLocation(), createStrengthItem(1));
+            killer.sendMessage(ChatColor.GOLD + "You are at max Strength, so a Strength Crystal dropped on the ground!");
+        } else {
+            setStrength(killer, killerBefore + 1);
+            killer.sendMessage(ChatColor.GREEN + "You gained 1 Strength! " + ChatColor.GRAY + "(" + getStrength(killer) + "/5)");
+        }
         if (victimBefore > MIN_LEVEL) {
             victim.sendMessage(ChatColor.RED + "You lost 1 Strength. " + ChatColor.GRAY + "(" + getStrength(victim) + "/5)");
         } else {
