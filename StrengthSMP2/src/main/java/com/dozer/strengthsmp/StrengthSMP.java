@@ -266,10 +266,10 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
         revertAllArmor(event.getPlayer());
     }
 
-    // ---- Reroll item: craft with iron blocks (corners), gold blocks (sides), diamond block (middle) ----
+    // ---- Reroll book: craft with iron blocks (corners), gold blocks (sides), diamond block (middle) ----
 
     private ItemStack createReroll() {
-        ItemStack item = new ItemStack(Material.ECHO_SHARD);
+        ItemStack item = new ItemStack(Material.BOOK);
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName(ChatColor.AQUA + "" + ChatColor.BOLD + "Reroll");
         List<String> lore = new ArrayList<>();
@@ -281,9 +281,21 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
     }
 
     private boolean isReroll(ItemStack item) {
-        if (item == null || item.getType() != Material.ECHO_SHARD || !item.hasItemMeta()) return false;
+        if (item == null || item.getType() != Material.BOOK || !item.hasItemMeta()) return false;
         Byte marker = item.getItemMeta().getPersistentDataContainer().get(rerollKey, PersistentDataType.BYTE);
         return marker != null && marker == (byte) 1;
+    }
+
+    // Picks a different random assigned item for the player and saves it. Returns the new item.
+    private String rerollAssigned(Player player) {
+        String current = getAssignedItem(player);
+        String next;
+        do {
+            next = LOOT_POOL[ThreadLocalRandom.current().nextInt(LOOT_POOL.length)];
+        } while (next.equals(current));
+        getConfig().set(assignedKey(player.getUniqueId()), next);
+        saveConfig();
+        return next;
     }
 
     @EventHandler
@@ -294,13 +306,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
         if (!isReroll(item)) return;
         event.setCancelled(true);
         Player player = event.getPlayer();
-        String current = getAssignedItem(player);
-        String next;
-        do {
-            next = LOOT_POOL[ThreadLocalRandom.current().nextInt(LOOT_POOL.length)];
-        } while (next.equals(current));
-        getConfig().set(assignedKey(player.getUniqueId()), next);
-        saveConfig();
+        String next = rerollAssigned(player);
         item.setAmount(item.getAmount() - 1);
         player.sendMessage(ChatColor.AQUA + "Rerolled! " + ChatColor.GRAY + "You are now assigned: " + ChatColor.GOLD + next);
     }
@@ -501,7 +507,7 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
 
         if (command.getName().equalsIgnoreCase("strength")) {
             if (args.length == 0) {
-                if (!(sender instanceof Player player)) { sender.sendMessage("Usage: /strength give <player> [amount] or /strength set <player> <1-5> | /strength reroll [player]"); return true; }
+                if (!(sender instanceof Player player)) { sender.sendMessage("Usage: /strength give <player> [amount] or /strength set <player> <1-5> | /strength reroll [player] | /strength givereroll [player]"); return true; }
                 int level = getStrength(player);
                 player.sendMessage(ChatColor.LIGHT_PURPLE + "Your Strength: " + level + "/5 " + ChatColor.GRAY + "(Damage: " + multiplier(level) + "x)");
                 player.sendMessage(ChatColor.LIGHT_PURPLE + "Assigned item: " + ChatColor.GOLD + getAssignedItem(player));
@@ -526,10 +532,23 @@ public final class StrengthSMP extends JavaPlugin implements Listener {
                 if (args.length >= 2) target = Bukkit.getPlayerExact(args[1]);
                 else if (sender instanceof Player p) target = p;
                 if (target == null) { sender.sendMessage(ChatColor.RED + "Usage: /strength reroll [player] (player must be online)"); return true; }
+                String before = getAssignedItem(target);
+                String after = rerollAssigned(target);
+                sender.sendMessage(ChatColor.GREEN + "Rerolled " + target.getName() + ": " + before + " -> " + after);
+                boolean self = (sender instanceof Player) && ((Player) sender).getUniqueId().equals(target.getUniqueId());
+                if (!self) target.sendMessage(ChatColor.AQUA + "An admin rerolled your item! " + ChatColor.GRAY + "You are now assigned: " + ChatColor.GOLD + after);
+                else target.sendMessage(ChatColor.AQUA + "Rerolled! " + ChatColor.GRAY + "You are now assigned: " + ChatColor.GOLD + after);
+                return true;
+            }
+            if (args[0].equalsIgnoreCase("givereroll")) {
+                Player target = null;
+                if (args.length >= 2) target = Bukkit.getPlayerExact(args[1]);
+                else if (sender instanceof Player p) target = p;
+                if (target == null) { sender.sendMessage(ChatColor.RED + "Usage: /strength givereroll [player] (player must be online)"); return true; }
                 final Player receiver = target;
                 var leftovers = receiver.getInventory().addItem(createReroll());
                 leftovers.values().forEach(l -> receiver.getWorld().dropItemNaturally(receiver.getLocation(), l));
-                sender.sendMessage(ChatColor.GREEN + "Gave a Reroll to " + receiver.getName() + ".");
+                sender.sendMessage(ChatColor.GREEN + "Gave a Reroll book to " + receiver.getName() + ".");
                 return true;
             }
             if (args[0].equalsIgnoreCase("set") && args.length >= 3) {
